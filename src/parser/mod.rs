@@ -9,6 +9,8 @@ use bzip2::read::BzDecoder;
 use flate2::read::MultiGzDecoder;
 #[cfg(feature = "compression")]
 use xz2::read::XzDecoder;
+#[cfg(feature = "compression")]
+use zstd::stream::Decoder as ZstdDecoder;
 
 use crate::errors::ParseError;
 pub use crate::parser::fasta::Reader as FastaReader;
@@ -29,6 +31,8 @@ const GZ_MAGIC: [u8; 2] = [0x1F, 0x8B];
 const BZ_MAGIC: [u8; 2] = [0x42, 0x5A];
 #[cfg(feature = "compression")]
 const XZ_MAGIC: [u8; 2] = [0xFD, 0x37];
+#[cfg(feature = "compression")]
+const ZSTD_MAGIC: [u8; 2] = [0x28, 0xB5]; // , 0x2F, 0xFD];
 
 fn get_fastx_reader<'a, R: 'a + io::Read + Send>(
     reader: R,
@@ -76,6 +80,7 @@ fn get_fastx_reader<'a, R: 'a + io::Read + Send>(
 /// [gzip]: https://www.gnu.org/software/gzip/
 /// [bz]: https://sourceware.org/bzip2/
 /// [xz]: https://tukaani.org/xz/format.html
+/// [zstd]: https://github.com/facebook/zstd
 ///
 pub fn parse_fastx_reader<'a, R: 'a + io::Read + Send>(
     mut reader: R,
@@ -110,6 +115,14 @@ pub fn parse_fastx_reader<'a, R: 'a + io::Read + Send>(
             let mut first = [0; 1];
             xz_reader.read_exact(&mut first)?;
             let r = Cursor::new(first).chain(xz_reader);
+            get_fastx_reader(r, first[0])
+        }
+        #[cfg(feature = "compression")]
+        ZSTD_MAGIC => {
+            let mut zstd_reader = ZstdDecoder::new(new_reader)?;
+            let mut first = [0; 1];
+            zstd_reader.read_exact(&mut first)?;
+            let r = Cursor::new(first).chain(zstd_reader);
             get_fastx_reader(r, first[0])
         }
         _ => get_fastx_reader(new_reader, first_two_bytes[0]),
